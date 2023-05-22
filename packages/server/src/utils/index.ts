@@ -353,6 +353,12 @@ export const resolveVariables = (reactFlowNodeData: INodeData, reactFlowNodes: I
     return flowNodeData
 }
 
+/**
+ * Loop through each inputs and replace their value with override config values
+ * @param {INodeData} flowNodeData
+ * @param {ICommonObject} overrideConfig
+ * @returns {INodeData}
+ */
 export const replaceInputsWithConfig = (flowNodeData: INodeData, overrideConfig: ICommonObject) => {
     const types = 'inputs'
 
@@ -388,19 +394,32 @@ export const isStartNodeDependOnInput = (startingNodes: IReactFlowNode[]): boole
 
 /**
  * Rebuild flow if new override config is provided
+ * @param {boolean} isInternal
  * @param {ICommonObject} existingOverrideConfig
  * @param {ICommonObject} newOverrideConfig
  * @returns {boolean}
  */
-export const isSameOverrideConfig = (existingOverrideConfig?: ICommonObject, newOverrideConfig?: ICommonObject): boolean => {
+export const isSameOverrideConfig = (
+    isInternal: boolean,
+    existingOverrideConfig?: ICommonObject,
+    newOverrideConfig?: ICommonObject
+): boolean => {
+    if (isInternal) {
+        if (existingOverrideConfig && Object.keys(existingOverrideConfig).length) return false
+        return true
+    }
+    // If existing and new overrideconfig are the same
     if (
         existingOverrideConfig &&
         Object.keys(existingOverrideConfig).length &&
         newOverrideConfig &&
         Object.keys(newOverrideConfig).length &&
         JSON.stringify(existingOverrideConfig) === JSON.stringify(newOverrideConfig)
-    )
+    ) {
         return true
+    }
+    // If there is no existing and new overrideconfig
+    if (!existingOverrideConfig && !newOverrideConfig) return true
     return false
 }
 
@@ -521,6 +540,19 @@ export const deleteAPIKey = async (keyIdToDelete: string): Promise<ICommonObject
 }
 
 /**
+ * Replace all api keys
+ * @param {ICommonObject[]} content
+ * @returns {Promise<void>}
+ */
+export const replaceAllAPIKeys = async (content: ICommonObject[]): Promise<void> => {
+    try {
+        await fs.promises.writeFile(getAPIKeyPath(), JSON.stringify(content), 'utf8')
+    } catch (error) {
+        console.error(error)
+    }
+}
+
+/**
  * Map MimeType to InputField
  * @param {string} mimeType
  * @returns {Promise<string>}
@@ -554,12 +586,7 @@ export const findAvailableConfigs = (reactFlowNodes: IReactFlowNode[]) => {
         for (const inputParam of flowNode.data.inputParams) {
             let obj: IOverrideConfig
             if (inputParam.type === 'password' || inputParam.type === 'options') {
-                obj = {
-                    node: flowNode.data.label,
-                    label: inputParam.label,
-                    name: inputParam.name,
-                    type: 'string'
-                }
+                continue
             } else if (inputParam.type === 'file') {
                 obj = {
                     node: flowNode.data.label,

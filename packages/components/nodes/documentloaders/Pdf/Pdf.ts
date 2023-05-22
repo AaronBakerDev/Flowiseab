@@ -1,7 +1,6 @@
 import { INode, INodeData, INodeParams } from '../../../src/Interface'
 import { TextSplitter } from 'langchain/text_splitter'
 import { PDFLoader } from 'langchain/document_loaders/fs/pdf'
-import { getBlob } from '../../../src/utils'
 
 class Pdf_DocumentLoaders implements INode {
     label: string
@@ -49,6 +48,13 @@ class Pdf_DocumentLoaders implements INode {
                     }
                 ],
                 default: 'perPage'
+            },
+            {
+                label: 'Metadata',
+                name: 'metadata',
+                type: 'json',
+                optional: true,
+                additionalParams: true
             }
         ]
     }
@@ -57,30 +63,64 @@ class Pdf_DocumentLoaders implements INode {
         const textSplitter = nodeData.inputs?.textSplitter as TextSplitter
         const pdfFileBase64 = nodeData.inputs?.pdfFile as string
         const usage = nodeData.inputs?.usage as string
+        const metadata = nodeData.inputs?.metadata
 
-        const blob = new Blob(getBlob(pdfFileBase64))
+        let alldocs = []
+        let files: string[] = []
 
-        if (usage === 'perFile') {
-            // @ts-ignore
-            const loader = new PDFLoader(blob, { splitPages: false, pdfjs: () => import('pdf-parse/lib/pdf.js/v1.10.100/build/pdf.js') })
-            if (textSplitter) {
-                const docs = await loader.loadAndSplit(textSplitter)
-                return docs
-            } else {
-                const docs = await loader.load()
-                return docs
-            }
+        if (pdfFileBase64.startsWith('[') && pdfFileBase64.endsWith(']')) {
+            files = JSON.parse(pdfFileBase64)
         } else {
-            // @ts-ignore
-            const loader = new PDFLoader(blob, { pdfjs: () => import('pdf-parse/lib/pdf.js/v1.10.100/build/pdf.js') })
-            if (textSplitter) {
-                const docs = await loader.loadAndSplit(textSplitter)
-                return docs
+            files = [pdfFileBase64]
+        }
+
+        for (const file of files) {
+            const splitDataURI = file.split(',')
+            splitDataURI.pop()
+            const bf = Buffer.from(splitDataURI.pop() || '', 'base64')
+            if (usage === 'perFile') {
+                const loader = new PDFLoader(new Blob([bf]), {
+                    splitPages: false,
+                    // @ts-ignore
+                    pdfjs: () => import('pdf-parse/lib/pdf.js/v1.10.100/build/pdf.js')
+                })
+                if (textSplitter) {
+                    const docs = await loader.loadAndSplit(textSplitter)
+                    alldocs.push(...docs)
+                } else {
+                    const docs = await loader.load()
+                    alldocs.push(...docs)
+                }
             } else {
-                const docs = await loader.load()
-                return docs
+                // @ts-ignore
+                const loader = new PDFLoader(new Blob([bf]), { pdfjs: () => import('pdf-parse/lib/pdf.js/v1.10.100/build/pdf.js') })
+                if (textSplitter) {
+                    const docs = await loader.loadAndSplit(textSplitter)
+                    alldocs.push(...docs)
+                } else {
+                    const docs = await loader.load()
+                    alldocs.push(...docs)
+                }
             }
         }
+
+        if (metadata) {
+            const parsedMetadata = typeof metadata === 'object' ? metadata : JSON.parse(metadata)
+            let finaldocs = []
+            for (const doc of alldocs) {
+                const newdoc = {
+                    ...doc,
+                    metadata: {
+                        ...doc.metadata,
+                        ...parsedMetadata
+                    }
+                }
+                finaldocs.push(newdoc)
+            }
+            return finaldocs
+        }
+
+        return alldocs
     }
 }
 
